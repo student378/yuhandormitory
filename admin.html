@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>생활관 관리자</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+<link rel="stylesheet" href="assets/admin.css">
+</head>
+<body>
+
+<!-- 관리자 화면 -->
+<div id="app" class="app" hidden>
+  <aside class="side">
+    <div class="side-hd"><strong id="sideTitle">생활관</strong><span>관리자</span></div>
+    <nav id="sideNav"></nav>
+    <div class="side-ft">
+      <a href="index.html" target="_blank" rel="noopener">홈페이지 보기 ↗</a>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="menu-btn" id="menuBtn" aria-label="메뉴">☰</button>
+      <h2 id="viewTitle"></h2>
+      <span class="mode" id="modeChip"></span>
+      <div class="top-actions">
+        <button type="button" class="btn" id="previewBtn">미리보기</button>
+        <button type="button" class="btn primary" id="saveBtn" disabled>저장 · 배포</button>
+      </div>
+    </header>
+    <div class="view" id="view"></div>
+  </div>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-hd"><h3 id="modalTitle"></h3><button type="button" class="x" id="modalClose" aria-label="닫기">&times;</button></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+<div id="toast" class="toast" role="status"></div>
+<datalist id="linkOptions"></datalist>
+
+<script src="assets/icons.js"></script>
+<script src="assets/loader.js"></script>
+<script src="assets/admin.js"></script>
+</body>
+</html>

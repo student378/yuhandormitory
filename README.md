@@ -26,9 +26,9 @@
 
 ## (선택) GitHub Pages로 운영 + 버튼 한 번 배포
 
-1. GitHub에 새 저장소(예: `-yuhandormitory`, Public)를 만들고 이 폴더의 파일을 모두 올립니다. `Add file` → `Upload files`로 끌어다 놓으면 됩니다.
+1. GitHub에 새 저장소(예: `yuhandormitory`, Public)를 만들고 이 폴더의 파일을 모두 올립니다. `Add file` → `Upload files`로 끌어다 놓으면 됩니다.
 2. 저장소 → Settings → Pages → Source: `Deploy from a branch`, Branch: `main` / `(root)`.
-   잠시 뒤 `https://student378.github.io/-yuhandormitory/`로 접속됩니다.
+   잠시 뒤 `https://student378.github.io/yuhandormitory/`로 접속됩니다.
 3. 여기까지만 해도 운영할 수 있습니다. 관리자에서 파일을 내려받아 GitHub 웹에서 `data` 폴더에 업로드하면 됩니다.
 4. 더 편하게 하려면 관리자 → **연결 · 백업**에서 토큰을 연결합니다. 그러면 **저장 · 배포** 한 번으로 바로 반영되고, 이미지·첨부 업로드도 관리자에서 됩니다.
    - 토큰 발급: GitHub → Settings → Developer settings → Fine-grained tokens → 이 저장소만 선택 → Contents: **Read and write**

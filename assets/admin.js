@@ -7,7 +7,7 @@
   'use strict';
 
   // 이 사이트가 들어 있는 저장소 기본값 (github.io 주소에서 열면 자동 감지)
-  var DEFAULTS = { owner: 'student378', repo: '-yuhandormitory', branch: 'main', base: '' };
+  var DEFAULTS = { owner: 'student378', repo: 'yuhandormitory', branch: 'main', base: '' };
   var CFG_KEY = 'dorm-admin-cfg';
   var DRAFT_KEY = 'dorm-admin-draft';
   var FILES = { site: 'data/site.js', posts: 'data/posts.js', meals: 'data/meals.js' };

@@ -207,8 +207,9 @@
     });
   }
 
-  function download(name, text) {
-    var a = h('a', { href: URL.createObjectURL(new Blob([text], { type: name.slice(-3) === '.js' ? 'text/javascript' : 'application/json' })), download: name });
+  function download(name, content) {
+    var blob = content instanceof Blob ? content : new Blob([content], { type: name.slice(-3) === '.js' ? 'text/javascript' : 'application/json' });
+    var a = h('a', { href: URL.createObjectURL(blob), download: name });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
@@ -253,23 +254,40 @@
       r.readAsDataURL(file);
     });
   }
+  function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
+  // 저장 파일 이름: 날짜-시간-영문이름.확장자 (한글·공백은 주소에서 문제가 될 수 있어 뺌)
+  function uploadName(f) {
+    var d = new Date();
+    var m = /\.([A-Za-z0-9]{1,5})$/.exec(f.name);
+    var ext = m ? m[1].toLowerCase() : 'bin';
+    var base = f.name.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+    return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) +
+      (base ? '-' + base : '') + '.' + ext;
+  }
   function upload(file) {
-    if (mode !== 'github') { toast('로컬 편집 모드에서는 업로드할 수 없습니다. 파일을 사이트의 uploads 폴더에 넣고 주소(예: uploads/사진.jpg)를 입력하세요.', 'err'); return Promise.reject(new Error('local')); }
-    if (file.size > 20 * 1024 * 1024) { toast('20MB 이하 파일만 업로드할 수 있습니다.', 'err'); return Promise.reject(new Error('size')); }
-    toast('업로드 중… ' + file.name);
+    if (file.size > 20 * 1024 * 1024) { toast('20MB 이하 파일만 올릴 수 있습니다. 문서는 PDF로 변환하거나 나눠서 올려 주세요.', 'err'); return Promise.reject(new Error('size')); }
+    toast((mode === 'github' ? '업로드 중… ' : '파일 준비 중… ') + file.name);
     return compressImage(file).then(function (f) {
-      var d = new Date();
-      var safe = f.name.replace(/[^\w.\-가-힣]/g, '_').slice(-60);
-      var rel = 'uploads/' + d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + Date.now().toString(36) + '-' + safe;
+      var name = uploadName(f);
+      var rel = 'uploads/' + name;
+      var sizeNote = f !== file ? ' (' + fmtSize(file.size) + ' → ' + fmtSize(f.size) + ')' : ' (' + fmtSize(f.size) + ')';
+      var big = f.size > 1024 * 1024 ? ' ※ 1MB가 넘어 화면이 느려질 수 있습니다.' : '';
+      if (mode !== 'github') {
+        // 로컬 편집 모드: 줄인 파일을 내려받아 사용자가 uploads 폴더에 올림
+        download(name, f);
+        blobMap[rel] = URL.createObjectURL(f);
+        toast('"' + name + '" 파일을 내려받았습니다' + sizeNote + '. 사이트의 uploads 폴더에 올려 주세요.' + big, big ? 'err' : 'ok');
+        return { url: rel, name: file.name };
+      }
       return readB64(f).then(function (b64) {
-        return ghPut(repoPath(rel), b64, '생활관 홈페이지 파일 업로드: ' + f.name);
+        return ghPut(repoPath(rel), b64, '생활관 홈페이지 파일 업로드: ' + file.name);
       }).then(function () {
         blobMap[rel] = URL.createObjectURL(f);
-        toast('업로드 완료: ' + f.name, 'ok');
-        return { url: rel, name: f.name };
+        toast('업로드 완료: ' + file.name + sizeNote + big, big ? 'err' : 'ok');
+        return { url: rel, name: file.name };
       });
     }).catch(function (e) {
-      if (e.message !== 'local' && e.message !== 'size') toast('업로드 실패: ' + e.message, 'err');
+      if (e.message !== 'size') toast('업로드 실패: ' + e.message, 'err');
       throw e;
     });
   }
@@ -318,7 +336,7 @@
       input.addEventListener('change', function () { pv.innerHTML = dormIcon(input.value, 22); });
       extra = h('div', { class: 'row' }, pv, input);
     } else if (f.type === 'image' || f.type === 'file') {
-      input = h('input', { type: 'text', placeholder: f.placeholder || '업로드하거나 주소 입력' });
+      input = h('input', { type: 'text', placeholder: f.placeholder || '[업로드]를 누르거나 주소 입력' });
       input.value = val || '';
       var th = f.type === 'image' ? h('span', { class: 'thumb' }) : null;
       var showThumb = function () { if (th) th.style.backgroundImage = input.value ? 'url("' + previewUrl(input.value).replace(/"/g, '%22') + '")' : ''; };
@@ -399,7 +417,14 @@
 
     function toPreview(s) { Object.keys(blobMap).forEach(function (k) { s = s.split('"' + k + '"').join('"' + blobMap[k] + '"'); }); return s; }
     function fromPreview(s) { Object.keys(blobMap).forEach(function (k) { s = s.split('"' + blobMap[k] + '"').join('"' + k + '"'); }); return s; }
-    function value() { return fromPreview(srcMode ? src.value : area.innerHTML).replace(/<p><br><\/p>$/, ''); }
+    function value() {
+      var v = fromPreview(srcMode ? src.value : area.innerHTML).replace(/<p><br><\/p>$/, '');
+      if (/<img[^>]+src="data:/i.test(v)) {
+        v = v.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
+        toast('본문에 직접 붙은 이미지를 뺐습니다. 이미지는 [이미지] 버튼으로 넣어 주세요.', 'err');
+      }
+      return v;
+    }
     function changed() { listeners.forEach(function (fn) { fn(value()); }); }
     function cmd(c, v) { area.focus(); document.execCommand(c, false, v); changed(); }
     function insertHtml(s) { area.focus(); document.execCommand('insertHTML', false, s); changed(); }
@@ -460,6 +485,19 @@
       b('서식 지우기', '선택 영역 서식 제거 (한글·워드에서 붙여넣은 뒤 사용)', function () { cmd('removeFormat'); }),
       srcBtn);
 
+    // 붙여넣기·끌어놓기 이미지는 본문에 직접 박히면(data: 주소) posts.js가 수 MB로 커지므로 업로드 경로로 처리
+    function takeImages(files, e) {
+      var imgs = Array.prototype.filter.call(files || [], function (f) { return /^image\//.test(f.type); });
+      if (!imgs.length) return;
+      e.preventDefault();
+      imgs.reduce(function (p, f) {
+        return p.then(function () {
+          return upload(f).then(function (r) { insertHtml('<img src="' + previewUrl(r.url) + '" alt="">'); }).catch(function () {});
+        });
+      }, Promise.resolve());
+    }
+    area.addEventListener('paste', function (e) { takeImages(e.clipboardData && e.clipboardData.files, e); });
+    area.addEventListener('drop', function (e) { takeImages(e.dataTransfer && e.dataTransfer.files, e); });
     area.addEventListener('input', changed);
     src.addEventListener('input', changed);
     var el = h('div', { class: 'rte' }, bar, area, src);
@@ -531,7 +569,7 @@
       h('div', { class: 'stat' }, h('span', { text: '이번 주 식단 등록' }), h('b', { text: mealDays + ' / 7일' })),
       h('div', { class: 'stat' }, h('span', { text: '노출 중인 팝업' }), h('b', { text: activePop })),
       h('div', { class: 'stat' }, h('span', { text: '예정된 일정' }), h('b', { text: upcoming }))));
-    wrap.appendChild(h('div', { class: 'tip', html: '<b>사용 방법</b><ol><li>왼쪽 메뉴에서 내용을 수정합니다. (자동으로 임시 보관됩니다)</li><li><b>미리보기</b>로 홈페이지에 어떻게 보이는지 확인합니다.</li><li>오른쪽 위 버튼으로 반영합니다. 로컬 편집 모드는 <b>파일 내려받기</b> → data 폴더에 덮어쓰기, GitHub 연결 시 <b>저장 · 배포</b> → 1~2분 뒤 자동 반영.</li></ol>' }));
+    wrap.appendChild(h('div', { class: 'tip', html: '<b>사용 방법</b> · 자세한 내용은 <a href="manual.html" target="_blank" rel="noopener">관리자 사용 매뉴얼</a>을 보세요.<ol><li>왼쪽 메뉴에서 내용을 수정합니다. (자동으로 임시 보관됩니다)</li><li><b>미리보기</b>로 홈페이지에 어떻게 보이는지 확인합니다.</li><li>오른쪽 위 버튼으로 반영합니다. 로컬 편집 모드는 <b>파일 내려받기</b> → data 폴더에 덮어쓰기, GitHub 연결 시 <b>저장 · 배포</b> → 1~2분 뒤 자동 반영.</li></ol>' }));
     var tb = h('table', { class: 'grid resp' }, h('thead', {}, h('tr', {}, h('th', { text: '게시판' }), h('th', { text: '제목' }), h('th', { text: '등록일' }), h('th'))),
       h('tbody', {}, recent.map(function (p) {
         return h('tr', {}, h('td', { text: boardName[p.board] || p.board }), h('td', { class: 'ellipsis', text: p.title }), h('td', { text: p.date }),

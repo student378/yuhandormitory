@@ -34,3 +34,14 @@ window.dormJsToData = function (name, text) {
   var body = text.slice(i + key.length).trim().replace(/;\s*$/, '');
   return JSON.parse(body);
 };
+
+// 선택 데이터 파일 하나 불러오기 (없으면 null) — 관리자 암호 파일(data/admin.js) 등
+window.loadDormFile = function (name) {
+  return new Promise(function (res) {
+    var s = document.createElement('script');
+    s.src = 'data/' + name + '.js' + (location.protocol === 'file:' ? '' : '?v=' + Date.now());
+    s.onload = function () { s.remove(); res((window.DORM_DATA || {})[name] || null); };
+    s.onerror = function () { s.remove(); res(null); };
+    document.head.appendChild(s);
+  });
+};

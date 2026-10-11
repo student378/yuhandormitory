@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>생활관 홈페이지 관리자 사용 매뉴얼</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -117,7 +119,7 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
 <header class="hero">
   <span class="badge">ADMIN MANUAL</span>
   <h1>생활관 홈페이지 관리자 사용 매뉴얼</h1>
-  <p>로그인 없이 내용을 고치고, 파일을 올려 홈페이지에 반영하는 방법을 정리했습니다.</p>
+  <p>관리자 암호로 화면을 열고, 내용을 고친 뒤 파일을 올려 홈페이지에 반영하는 방법을 정리했습니다.</p>
   <div class="btns">
     <a class="pri" href="admin.html">관리자 페이지 열기</a>
     <a class="sec" href="index.html">홈페이지 보기</a>
@@ -131,6 +133,7 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
     <li><a href="#menus">메뉴별 사용법</a></li>
     <li><a href="#images">사진·파일 올리기</a></li>
     <li><a href="#capacity">용량 검토</a></li>
+    <li><a href="#security">보안</a></li>
     <li><a href="#faq">문제 해결</a></li>
   </ul>
 </nav>
@@ -152,7 +155,20 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
         <tr><td>파일 보관소</td><td><code>https://github.com/student378/yuhandormitory</code></td><td>담당 직원 (GitHub 계정 필요)</td></tr>
       </tbody>
     </table></div>
-    <p>관리자 페이지는 <b>로그인이 없습니다.</b> 누가 열어도 편집은 되지만, 그 내용은 그 사람 브라우저 안에만 남고 홈페이지는 바뀌지 않습니다. 홈페이지를 실제로 바꾸려면 GitHub 저장소에 파일을 올려야 하므로, <b>저장소 권한이 있는 사람만 반영할 수 있습니다.</b></p>
+    <p>관리자 주소는 홈페이지 어디에도 링크되어 있지 않습니다. 이 주소를 아는 담당자만 들어오며, 들어올 때 <b>관리자 암호</b>를 입력합니다. 홈페이지를 실제로 바꾸려면 GitHub 저장소에 파일을 올려야 하므로 <b>저장소 권한이 있는 사람만 반영할 수 있습니다.</b> 자세한 내용은 <a href="#security">6장 보안</a>을 보세요.</p>
+  </div>
+
+  <div class="card">
+    <h3>처음 한 번 · 관리자 암호 정하기</h3>
+    <figure class="shot"><img src="manual/00-lock.jpg" alt="관리자 암호 정하기 화면" loading="lazy" width="1100" height="760"><figcaption>처음 열면 관리자 암호를 정하는 화면이 나옵니다. 그다음부터는 같은 자리에서 암호를 입력합니다.</figcaption></figure>
+    <ol class="num">
+      <li>관리자 주소를 열고 암호를 정합니다. <b>10자 이상, 글자와 숫자를 섞어서</b>, 다른 사이트에서 쓰지 않는 암호로 정하세요.</li>
+      <li>대시보드에 "관리자 암호가 아직 홈페이지에 등록되지 않았습니다"가 보이면, 오른쪽 위 <b>[파일 내려받기]</b>를 누릅니다. <code>admin.js</code>가 내려받아집니다.</li>
+      <li><code>admin.js</code>를 저장소의 <code>data</code> 폴더에 올립니다. 올리는 방법은 <a href="#flow">2장 STEP 4</a>와 같습니다.</li>
+      <li>1~2분 뒤부터는 어느 PC에서 관리자 주소를 열어도 이 암호를 물어봅니다.</li>
+    </ol>
+    <div class="box danger"><b>꼭 올려 주세요</b> <code>admin.js</code>를 올리기 전까지는 다른 사람이 관리자 주소를 열면 자기 암호를 새로 정해 들어올 수 있습니다. 그 사람의 수정은 그 사람 브라우저에만 남아 홈페이지는 바뀌지 않지만, 바로 올려 두는 것이 안전합니다.</div>
+    <div class="box info"><b>자동 잠금</b> 30분 동안 아무 조작이 없으면 화면이 잠깁니다. 암호를 다시 넣으면 하던 작업이 그대로 있습니다. 자리를 비울 때는 왼쪽 아래 <b>[잠금]</b>을 누르세요.</div>
   </div>
 
   <div class="card">
@@ -216,7 +232,9 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
     <figure class="shot"><img src="manual/12-system.jpg" alt="연결 · 백업 화면" loading="lazy" width="1100" height="688"><figcaption>연결 · 백업. 토큰 발급 방법은 화면의 [토큰 발급 방법]을 펼치면 나옵니다.</figcaption></figure>
     <ul class="dot">
       <li>토큰 발급: GitHub → Settings → Developer settings → <b>Fine-grained tokens</b> → 이 저장소만 선택 → Contents: <b>Read and write</b></li>
-      <li>"이 브라우저에 토큰 기억하기"는 <b>개인 PC에서만</b> 켜세요. 공용 PC에서는 사용 후 [연결 해제]를 누르세요.</li>
+      <li>"이 브라우저에 토큰 기억하기"를 켜면 토큰을 <b>관리자 암호로 암호화해서</b> 저장합니다. 그래도 <b>개인 PC에서만</b> 켜고, 공용 PC에서는 사용 후 [연결 해제]를 누르세요.</li>
+      <li>클래식 토큰(<code>ghp_…</code>)은 계정의 모든 저장소에 접근할 수 있어 쓰지 마세요. 관리자도 연결 전에 경고합니다.</li>
+      <li>연결 · 백업 화면에서 토큰 만료일을 확인할 수 있습니다. 14일 이내로 남으면 노란 표시가 나옵니다.</li>
       <li>토큰이 유출되면 GitHub 설정에서 바로 삭제(Revoke)하고 새로 만드세요.</li>
     </ul>
   </div>
@@ -368,6 +386,7 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
         <tr><td>첨부파일</td><td>-</td><td>PDF·HWP·XLSX 등</td><td>파일 하나에 20MB 이하. 가능하면 PDF로</td></tr>
       </tbody>
     </table></div>
+    <div class="box info"><b>올릴 수 있는 형식</b> 사진은 JPG·PNG·GIF·WEBP, 문서는 PDF·HWP·HWPX·워드·엑셀·파워포인트·TXT·CSV·ZIP입니다. SVG·HTML 같은 파일은 홈페이지 주소에서 프로그램이 실행될 수 있어 막아 두었습니다. 로고가 SVG라면 PNG로 바꿔서 올려 주세요.</div>
     <div class="box warn"><b>줄이지 않는 파일</b> GIF(움직이는 그림), PDF, 한글·엑셀 파일은 그대로 올라갑니다. 큰 PDF는 PDF 압축 후 올리고, 동영상은 저장소에 올리지 말고 유튜브에 올린 뒤 링크나 [지도/영상] 버튼으로 넣으세요.</div>
   </div>
 </section>
@@ -413,9 +432,65 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
   </div>
 </section>
 
-<!-- 6. 문제 해결 -->
+<!-- 6. 보안 -->
+<section class="chap" id="security">
+  <h2><span class="no">6</span>보안</h2>
+
+  <div class="card">
+    <h3>무엇이 홈페이지를 지키나요</h3>
+    <p>이 홈페이지는 서버 없이 파일만으로 돌아갑니다. 그래서 해킹으로 서버나 DB를 빼앗기는 일은 없고, <b>홈페이지를 바꿀 수 있는 길은 GitHub 저장소에 파일을 올리는 것 하나뿐</b>입니다. 지켜야 할 열쇠는 아래 세 가지입니다.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>열쇠</th><th>뚫리면</th><th>지키는 방법</th></tr></thead>
+      <tbody>
+        <tr><td><b>GitHub 계정</b></td><td>홈페이지 전체 변경 가능</td><td>2단계 인증(2FA) 켜기, 다른 곳과 다른 비밀번호, 협업자 최소화</td></tr>
+        <tr><td><b>GitHub 토큰</b><br><small>(연결해 쓰는 경우)</small></td><td>이 저장소 파일 변경 가능</td><td>이 저장소만·Contents 권한만·90일 만료로 발급, 공용 PC에 기억하지 않기, 유출 시 즉시 삭제</td></tr>
+        <tr><td><b>관리자 암호</b></td><td>관리 화면을 열 수 있음 (홈페이지는 못 바꿈)</td><td>10자 이상, 다른 곳에서 쓰지 않는 암호</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box warn"><b>관리자 암호의 한계</b> 관리자 암호는 관리 화면을 아무나 열지 못하게 하는 <b>문 잠금</b>입니다. 파일만으로 된 사이트라서 전문가가 마음먹으면 관리 화면 자체는 우회해 열 수 있습니다. 하지만 관리 화면을 열어도 GitHub 권한 없이는 홈페이지를 바꿀 수 없습니다. 진짜 보호는 GitHub 계정과 토큰입니다.</div>
+  </div>
+
+  <div class="card">
+    <h3>적용된 보호 장치</h3>
+    <ul class="dot">
+      <li><b>관리자 암호 잠금</b>: 암호 자체는 저장하지 않고 PBKDF2(31만 회 반복) 해시만 <code>data/admin.js</code>에 저장합니다. 이 파일은 공개 화면에서는 불러오지 않습니다. 5번 틀리면 30초부터 점점 길게 기다려야 합니다.</li>
+      <li><b>토큰 암호화</b>: 기억한 토큰은 관리자 암호로 AES-256 암호화해 저장합니다. 암호를 넣기 전에는 토큰을 꺼낼 수 없습니다.</li>
+      <li><b>자동 잠금</b>: 30분 동안 조작이 없으면 잠깁니다.</li>
+      <li><b>본문 정리</b>: 게시글·페이지·팝업 내용에서 스크립트, 위험한 링크(<code>javascript:</code>), 허용하지 않은 외부 화면(iframe)을 자동으로 지웁니다. 다른 사이트에서 복사해 붙여도 방문자 브라우저에서 코드가 실행되지 않습니다.</li>
+      <li><b>외부 화면 제한</b>: 지도·영상은 유튜브, 구글·네이버·카카오 지도만 넣을 수 있고, 넣은 화면이 우리 홈페이지를 다른 곳으로 옮기지 못하게 막습니다.</li>
+      <li><b>보안 정책(CSP)</b>: 모든 화면이 우리 사이트의 프로그램 파일과 허용한 글꼴·지도·영상만 쓰도록 브라우저에 지시합니다.</li>
+      <li><b>업로드 형식 제한</b>: SVG·HTML·JS처럼 실행될 수 있는 파일은 올릴 수 없습니다.</li>
+      <li><b>가로채기 방지</b>: 다른 사이트가 관리 화면을 자기 페이지에 끼워 넣어 클릭을 가로채지 못하게 합니다.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>정기 점검 목록</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>주기</th><th>할 일</th></tr></thead>
+      <tbody>
+        <tr><td>처음 한 번</td><td>GitHub 계정 2단계 인증 켜기 · 관리자 암호 정하고 <code>admin.js</code> 올리기 · 저장소 Settings → Pages에서 <b>Enforce HTTPS</b> 켜기</td></tr>
+        <tr><td>매달</td><td>저장소 <b>Commits</b> 기록에서 모르는 수정이 없는지 보기 · Settings → Collaborators에 필요한 사람만 있는지 보기</td></tr>
+        <tr><td>토큰 만료 전</td><td>새 토큰 발급 → 관리자에서 다시 연결 → 옛 토큰 삭제</td></tr>
+        <tr><td>담당자가 바뀔 때</td><td>관리자 암호 변경(연결 · 백업 → 보안), 옛 담당자의 협업자 권한·토큰 삭제</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h3>문제가 생겼을 때</h3>
+    <ol class="num">
+      <li><b>모르는 수정이 보이면</b>: GitHub 비밀번호를 바꾸고, 쓰는 토큰을 모두 삭제(Settings → Developer settings → Tokens → Revoke)합니다.</li>
+      <li>저장소 <b>History</b>에서 문제 전 버전의 파일을 내려받아 다시 올려 되돌립니다.</li>
+      <li>관리자 암호도 바꾸고, 새 <code>admin.js</code>를 올립니다.</li>
+    </ol>
+    <div class="box info"><b>관리자 암호를 잊었을 때</b> 저장소의 <code>data/admin.js</code> 파일을 지우면(파일 열기 → 휴지통 아이콘 → Commit) 관리자를 열 때 새 암호를 정할 수 있습니다. 새 암호를 정한 뒤 <code>admin.js</code>를 다시 올리세요. 기억해 둔 토큰은 옛 암호로 잠겨 있으므로 다시 연결해야 합니다.</div>
+  </div>
+</section>
+
+<!-- 7. 문제 해결 -->
 <section class="chap" id="faq">
-  <h2><span class="no">6</span>문제 해결</h2>
+  <h2><span class="no">7</span>문제 해결</h2>
 
   <details class="faq"><summary>GitHub에 올렸는데 홈페이지가 안 바뀌어요.</summary>
     <div class="a">배포에 1~2분 걸립니다. 기다린 뒤 <b>Ctrl + F5</b>(맥은 Cmd + Shift + R)로 강력 새로고침하세요. 그래도 그대로면 올린 파일 이름이 정확히 <code>site.js</code> · <code>posts.js</code> · <code>meals.js</code>인지, <code>data</code> 폴더 안에 올렸는지 확인하세요. 저장소의 <b>Actions</b> 탭에서 배포가 끝났는지(초록 체크)도 볼 수 있습니다.</div></details>
@@ -439,26 +514,19 @@ footer { text-align: center; font-size: 13px; color: var(--txt-3); padding: 24px
     <div class="a">편집기에서 해당 부분을 선택하고 <b>[서식 지우기]</b>를 누르세요. 표는 HWP 표보다 편집기의 [표] 버튼으로 새로 만드는 편이 모바일에서 깔끔하게 보입니다.</div></details>
 
   <details class="faq"><summary>관리자 주소를 학생이 알면 위험하지 않나요?</summary>
-    <div class="a">관리자에서 고쳐도 그 사람 브라우저 안에서만 바뀌고, 홈페이지는 GitHub 저장소에 파일을 올려야 바뀝니다. 저장소 권한(또는 토큰)이 없는 사람은 홈페이지를 바꿀 수 없습니다. 토큰을 연결해 쓰는 경우 공용 PC에서는 토큰을 기억하지 말고 사용 후 [연결 해제]를 누르세요.</div></details>
+    <div class="a">관리자 화면은 관리자 암호를 알아야 열립니다. 혹시 화면을 열더라도 그 사람 브라우저 안에서만 바뀌고, 홈페이지는 GitHub 저장소 권한(또는 토큰)이 있어야 바뀝니다. 걱정되면 관리자 암호를 바꾸세요(연결 · 백업 → 보안 · 관리자 암호). 토큰을 기억해 둔 PC라도 암호 없이는 토큰을 꺼낼 수 없습니다.</div></details>
+
+  <details class="faq"><summary>관리자 암호를 잊었어요.</summary>
+    <div class="a">저장소에서 <code>data/admin.js</code>를 지우고 1~2분 뒤 관리자를 열면 새 암호를 정할 수 있습니다. 자세한 내용은 <a href="#security">6장</a>을 보세요.</div></details>
+
+  <details class="faq"><summary>암호를 바꿨는데 다른 PC에서는 옛 암호로 열려요.</summary>
+    <div class="a">바꾼 암호는 <code>admin.js</code>가 홈페이지에 올라가야 다른 PC에도 적용됩니다. 로컬 편집 모드라면 [파일 내려받기]로 받은 <code>admin.js</code>를 data 폴더에 올리고, GitHub 연결 상태라면 [저장 · 배포]를 누르세요. 반영까지 1~2분, 브라우저 캐시 때문에 최대 10분 정도 걸릴 수 있습니다.</div></details>
 </section>
 
 </main>
 
 <footer>생활관 홈페이지 관리자 사용 매뉴얼 · 2026. 10.</footer>
 
-<script>
-// 현재 보고 있는 장을 목차에 표시
-(function () {
-  var links = Array.prototype.slice.call(document.querySelectorAll('.tabnav a'));
-  if (!('IntersectionObserver' in window)) return;
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      links.forEach(function (a) { a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id); });
-    });
-  }, { rootMargin: '-40% 0px -55% 0px' });
-  document.querySelectorAll('section.chap').forEach(function (s) { io.observe(s); });
-})();
-</script>
+<script src="assets/manual.js"></script>
 </body>
 </html>

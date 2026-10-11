@@ -26,9 +26,12 @@
   function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function mondayOf(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); var w = x.getDay(); return addDays(x, w === 0 ? -6 : 1 - w); }
   function dotDate(s) { return String(s || '').replace(/-/g, '.'); }
-  function stripHtml(h) { var t = document.createElement('div'); t.innerHTML = h || ''; return (t.textContent || '').trim(); }
+  function stripHtml(h) { return dormText(h); } // 분리된 문서로 읽어 <img onerror> 등이 실행되지 않음
+  // 이미지 주소는 CSS url('…') 안에도 들어가므로 따옴표·괄호·역슬래시·공백이 있으면 쓰지 않음
+  function img(u) { u = dormSafeUrl(u, 'img'); return /['"()\\\s<>]/.test(u) ? '' : esc(u); }
+  function clean(h) { return dormSanitize(h); }
   function isExternal(url) { return /^https?:\/\//i.test(url || ''); }
-  function linkAttr(url) { return 'href="' + esc(url || '#/') + '"' + (isExternal(url) ? ' target="_blank" rel="noopener" title="새 창 열림"' : ''); }
+  function linkAttr(url) { url = dormSafeUrl(url, 'link') || '#/'; return 'href="' + esc(url) + '"' + (isExternal(url) ? ' target="_blank" rel="noopener noreferrer" title="새 창 열림"' : ''); }
   function store(key, val) {
     try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; }
   }
@@ -95,7 +98,7 @@
     if (s.accentColor) root.setProperty('--accent', s.accentColor);
 
     var logoHtml = s.logoImage
-      ? '<img src="' + esc(s.logoImage) + '" alt="' + esc(s.univName + ' ' + s.siteName) + '">'
+      ? '<img src="' + img(s.logoImage) + '" alt="' + esc(s.univName + ' ' + s.siteName) + '">'
       : '<span class="logo-mark">' + dormIcon('home', 26) + '</span><span class="logo-txt"><em>' + esc(s.univName) + '</em><strong>' + esc(s.siteName) + '</strong></span>';
     $('#logo').innerHTML = logoHtml;
     $('#ftLogo').innerHTML = '<strong>' + esc(s.univName) + ' ' + esc(s.siteName) + '</strong>';
@@ -162,7 +165,7 @@
     });
 
     $('#familyGo').addEventListener('click', function () {
-      var u = $('#familySel').value;
+      var u = dormSafeUrl($('#familySel').value, 'link');
       if (u) window.open(u, '_blank', 'noopener');
     });
 
@@ -225,7 +228,7 @@
     var site = D.site;
     var slides = site.slides || [];
     var visual = '<section class="mvisual" aria-label="메인 비주얼"><div class="mv-track">' + slides.map(function (sl, i) {
-      var bg = sl.image ? 'background-image:url(\'' + esc(sl.image) + '\')' : 'background:' + esc(sl.bg || 'var(--primary)');
+      var bg = sl.image ? 'background-image:url(\'' + img(sl.image) + '\')' : 'background:' + esc(sl.bg || 'var(--primary)');
       return '<div class="mv-slide' + (i === 0 ? ' on' : '') + '" style="' + bg + '" aria-hidden="' + (i === 0 ? 'false' : 'true') + '">' +
         (sl.image ? '<div class="mv-dim"></div>' : '<div class="mv-pattern"></div>') +
         '<div class="inner mv-text">' +
@@ -281,7 +284,7 @@
     var bannerBox = '<div class="m-box m-banner"><div class="m-hd"><h3>알림존</h3>' +
       (banners.length > 1 ? '<div class="bn-ctrl"><span class="bn-num"><b>1</b>/' + banners.length + '</span><button type="button" data-d="-1" aria-label="이전 배너">&lsaquo;</button><button type="button" data-d="1" aria-label="다음 배너">&rsaquo;</button></div>' : '') +
       '</div><div class="bn-view">' + banners.map(function (b, i) {
-        var bg = b.image ? 'background:#eee url(\'' + esc(b.image) + '\') center/cover no-repeat' : 'background:' + esc(b.bg || 'var(--primary)');
+        var bg = b.image ? 'background:#eee url(\'' + img(b.image) + '\') center/cover no-repeat' : 'background:' + esc(b.bg || 'var(--primary)');
         return '<a class="bn' + (i === 0 ? ' on' : '') + '" ' + linkAttr(b.link || '#/') + ' style="' + bg + '">' +
           (b.image ? '<span class="sr">' + esc(b.title) + '</span>' : '<span class="bn-t">' + nl2br(b.title) + '</span>') + '</a>';
       }).join('') + (banners.length ? '' : '<p class="empty sm">등록된 배너가 없습니다.</p>') + '</div></div>';
@@ -374,7 +377,7 @@
     var mobile = window.innerWidth < 768;
     wrap.innerHTML = list.map(function (p, n) {
       var style = mobile ? '' : 'width:' + (+p.width || 380) + 'px;top:' + ((+p.top || 120) + n * 24) + 'px;left:' + ((+p.left || 60) + n * 24) + 'px';
-      var body = (p.image ? '<img src="' + esc(p.image) + '" alt="' + esc(p.title) + '">' : '') + (p.html ? '<div class="pop-html">' + p.html + '</div>' : '');
+      var body = (p.image ? '<img src="' + img(p.image) + '" alt="' + esc(p.title) + '">' : '') + (p.html ? '<div class="pop-html">' + clean(p.html) + '</div>' : '');
       return '<div class="pop" role="dialog" aria-label="' + esc(p.title) + '" style="' + style + '" data-key="' + esc('dorm-popup-hide-' + p._i + '-' + (p.title || '')) + '">' +
         '<div class="pop-body">' + (p.link ? '<a ' + linkAttr(p.link) + '>' + body + '</a>' : body) + '</div>' +
         '<div class="pop-ft"><label><input type="checkbox"> 오늘 하루 열지 않기</label><button type="button">닫기</button></div></div>';
@@ -415,7 +418,7 @@
     switch (item.type) {
       case 'page': {
         var pg = (D.site.pages || {})[item.id];
-        return '<div class="content">' + (pg && pg.html ? pg.html : '<p class="empty">준비 중입니다.</p>') + '</div>';
+        return '<div class="content">' + (pg && pg.html ? clean(pg.html) : '<p class="empty">준비 중입니다.</p>') + '</div>';
       }
       case 'board': return boardBody(item, r);
       case 'meal': return mealBody(r);
@@ -446,7 +449,7 @@
 
     if (b.type === 'faq') {
       return search + (list.length ? '<ul class="faq">' + list.map(function (p) {
-        return '<li><button type="button" class="faq-q" aria-expanded="false"><b>Q</b>' + esc(p.title) + '</button><div class="faq-a"><b>A</b><div>' + p.content + '</div></div></li>';
+        return '<li><button type="button" class="faq-q" aria-expanded="false"><b>Q</b>' + esc(p.title) + '</button><div class="faq-a"><b>A</b><div>' + clean(p.content) + '</div></div></li>';
       }).join('') + '</ul>' : '<p class="empty">검색 결과가 없습니다.</p>') + faqScript();
     }
 
@@ -458,8 +461,8 @@
     var html;
     if (b.type === 'gallery') {
       html = slice.length ? '<ul class="gallery">' + slice.map(function (p) {
-        var img = p.thumb || ((p.content || '').match(/<img[^>]+src="([^"]+)"/) || [])[1];
-        return '<li><a href="' + esc(base + '/' + p.id) + '"><span class="g-img"' + (img ? ' style="background-image:url(\'' + esc(img) + '\')"' : '') + '>' + (img ? '' : dormIcon('home', 40)) + '</span>' +
+        var thumb = img(p.thumb || ((p.content || '').match(/<img[^>]+src="([^"]+)"/) || [])[1]);
+        return '<li><a href="' + esc(base + '/' + p.id) + '"><span class="g-img"' + (thumb ? ' style="background-image:url(\'' + thumb + '\')"' : '') + '>' + (thumb ? '' : dormIcon('home', 40)) + '</span>' +
           '<span class="g-t">' + esc(p.title) + '</span><span class="g-d">' + dotDate(p.date) + '</span></a></li>';
       }).join('') + '</ul>' : '<p class="empty">등록된 게시물이 없습니다.</p>';
     } else {
@@ -503,11 +506,11 @@
     if (idx < 0) return '<p class="empty">게시물을 찾을 수 없습니다.</p><div class="btns"><a class="btn" href="' + esc(base) + '">목록</a></div>';
     var p = list[idx], prev = list[idx + 1], next = list[idx - 1];
     var files = (p.files || []).length ? '<div class="files"><strong>첨부파일</strong><ul>' + p.files.map(function (f) {
-      return '<li><a href="' + esc(f.url) + '" download target="_blank" rel="noopener">' + dormIcon('doc', 16) + esc(f.name) + '</a></li>';
+      return '<li><a href="' + esc(dormSafeUrl(f.url, 'link') || '#') + '" download target="_blank" rel="noopener">' + dormIcon('doc', 16) + esc(f.name) + '</a></li>';
     }).join('') + '</ul></div>' : '';
     return '<article class="view"><header class="view-hd"><h4>' + (p.pinned ? '<span class="badge">공지</span>' : '') + esc(p.title) + '</h4>' +
       '<dl><dt>작성자</dt><dd>' + esc(p.author || '') + '</dd><dt>등록일</dt><dd>' + dotDate(p.date) + '</dd></dl></header>' +
-      files + '<div class="view-body content">' + (p.content || '') + '</div></article>' +
+      files + '<div class="view-body content">' + clean(p.content) + '</div></article>' +
       '<ul class="view-nav"><li><span>이전글</span>' + (prev ? '<a href="' + esc(base + '/' + prev.id) + '">' + esc(prev.title) + '</a>' : '<em>이전글이 없습니다.</em>') + '</li>' +
       '<li><span>다음글</span>' + (next ? '<a href="' + esc(base + '/' + next.id) + '">' + esc(next.title) + '</a>' : '<em>다음글이 없습니다.</em>') + '</li></ul>' +
       '<div class="btns"><a class="btn" href="' + esc(base) + '">목록</a></div>';

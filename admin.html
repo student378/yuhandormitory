@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; frame-src https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://www.google.com https://maps.google.com https://map.naver.com https://m.map.naver.com https://tv.naver.com https://map.kakao.com https://tv.kakao.com https://play-tv.kakao.com; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>생활관 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,6 +13,27 @@
 <link rel="stylesheet" href="assets/admin.css">
 </head>
 <body>
+
+<!-- 잠금 화면: 관리자 암호 확인 전에는 편집 화면을 보여주지 않음 -->
+<section id="lock" class="lock" hidden>
+  <form class="lock-card" id="lockForm" autocomplete="off">
+    <h1><span class="lk-mark" aria-hidden="true">🔒</span><span id="lockTitle">관리자 암호 입력</span></h1>
+    <p class="desc" id="lockDesc"></p>
+    <label id="lockPw1Row">암호<input type="password" id="lockPw1" autocomplete="current-password" required></label>
+    <label id="lockPw2Row" hidden>암호 확인<input type="password" id="lockPw2" autocomplete="new-password"></label>
+    <p class="err" id="lockErr" role="alert"></p>
+    <button type="submit" class="btn primary block" id="lockBtn">열기</button>
+    <details class="help">
+      <summary>이 잠금으로 무엇이 보호되나요?</summary>
+      <ul>
+        <li>관리 화면을 아무나 열어 보거나 고치지 못하게 막습니다.</li>
+        <li>"토큰 기억하기"로 저장한 GitHub 토큰을 이 암호로 암호화합니다.</li>
+        <li>홈페이지를 실제로 바꾸는 권한은 <b>GitHub 계정과 토큰</b>에 있습니다. GitHub 계정에 2단계 인증을 꼭 켜 두세요.</li>
+        <li>암호를 잊었을 때는 저장소에서 <code>data/admin.js</code> 파일을 지우면 새 암호를 정할 수 있습니다.</li>
+      </ul>
+    </details>
+  </form>
+</section>
 
 <!-- 관리자 화면 -->
 <div id="app" class="app" hidden>
@@ -20,6 +43,7 @@
     <div class="side-ft">
       <a href="index.html" target="_blank" rel="noopener">홈페이지 보기 ↗</a>
       <a href="manual.html" target="_blank" rel="noopener">사용 매뉴얼 ↗</a>
+      <button type="button" id="lockNow" class="lock-now">잠금</button>
     </div>
   </aside>
   <div class="main">
@@ -45,6 +69,7 @@
 <div id="toast" class="toast" role="status"></div>
 <datalist id="linkOptions"></datalist>
 
+<script src="assets/sanitize.js"></script>
 <script src="assets/icons.js"></script>
 <script src="assets/loader.js"></script>
 <script src="assets/admin.js"></script>

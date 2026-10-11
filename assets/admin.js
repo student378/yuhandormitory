@@ -6,12 +6,27 @@
 (function () {
   'use strict';
 
+  // 다른 사이트가 관리자 화면을 iframe으로 감싸 클릭을 가로채지 못하게 함 (클릭재킹 방지)
+  if (window.top !== window.self) {
+    document.documentElement.style.display = 'none';
+    try { window.top.location = window.self.location.href; } catch (e) { /* 막혀도 화면은 숨김 상태 */ }
+    return;
+  }
+
   // 이 사이트가 들어 있는 저장소 기본값 (github.io 주소에서 열면 자동 감지)
   var DEFAULTS = { owner: 'student378', repo: 'yuhandormitory', branch: 'main', base: '' };
   var CFG_KEY = 'dorm-admin-cfg';
   var DRAFT_KEY = 'dorm-admin-draft';
-  var FILES = { site: 'data/site.js', posts: 'data/posts.js', meals: 'data/meals.js' };
-  var FILE_LABEL = { site: '사이트 설정', posts: '게시판', meals: '식단표' };
+  var AUTH_PENDING_KEY = 'dorm-admin-auth-pending'; // 새 암호를 정했지만 아직 홈페이지에 올리지 않은 경우
+  var FILES = { site: 'data/site.js', posts: 'data/posts.js', meals: 'data/meals.js', admin: 'data/admin.js' };
+  var FILE_LABEL = { site: '사이트 설정', posts: '게시판', meals: '식단표', admin: '관리자 암호' };
+  var CONTENT_KEYS = ['site', 'posts', 'meals']; // 공개 화면이 읽는 파일
+  var PBKDF2_ITER = 310000;
+  var MIN_PW = 10;
+  var IDLE_LOCK_MS = 30 * 60 * 1000;
+  // 올릴 수 있는 파일 (SVG·HTML·JS는 사이트 주소에서 스크립트가 실행될 수 있어 막음)
+  var UPLOAD_IMG = /\.(jpe?g|png|gif|webp)$/i;
+  var UPLOAD_DOC = /\.(pdf|hwp|hwpx|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip)$/i;
   var MEALS = [['breakfast', '조식'], ['lunch', '중식'], ['dinner', '석식']];
   var WEEK = ['일', '월', '화', '수', '목', '금', '토'];
   var ITEM_TYPES = [['page', '일반 페이지'], ['board', '게시판'], ['meal', '주간식단표'], ['schedule', '생활관 일정'], ['link', '외부 링크']];
@@ -24,6 +39,10 @@
   var dirty = {};
   var view = 'dashboard';
   var blobMap = {}; // 업로드 직후(배포 전) 미리보기용: 상대경로 → blob URL
+  var auth = null;          // 지금 유효한 관리자 암호 기록 {v, salt, iter, hash, updated}
+  var authDeployed = false; // 홈페이지(data/admin.js)에 올라가 있는 암호인지
+  var unlockedPw = null;    // 잠금 해제한 암호 (토큰 암호화에만 사용, 메모리에만 보관)
+  var tokenExpiry = '';     // GitHub가 알려주는 토큰 만료 시각
 
   /* ================= 유틸 ================= */
   function $(s, el) { return (el || document).querySelector(s); }
@@ -47,6 +66,11 @@
     if (c == null || c === false) return;
     if (Array.isArray(c)) return c.forEach(function (x) { append(el, x); });
     el.appendChild(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -85,7 +109,9 @@
   function gh(url, opts) {
     opts = opts || {};
     var headers = { 'Authorization': 'Bearer ' + cfg.token, 'Accept': opts.accept || 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-    return fetch(url, { method: opts.method || 'GET', headers: headers, body: opts.body, cache: 'no-store' }).then(function (r) {
+    return fetch(url, { method: opts.method || 'GET', headers: headers, body: opts.body, cache: 'no-store', referrerPolicy: 'no-referrer' }).then(function (r) {
+      var exp = r.headers.get('github-authentication-token-expiration');
+      if (exp) tokenExpiry = exp;
       if (!r.ok) {
         return r.json().catch(function () { return {}; }).then(function (j) {
           var e = new Error(ghMessage(r.status, j.message));
@@ -131,19 +157,31 @@
   function loadAll() {
     var keys = Object.keys(FILES);
     if (mode === 'github') {
-      return Promise.all(keys.map(ghGetData)).then(function (a) {
+      return Promise.all(keys.map(function (k) {
+        // data/admin.js는 아직 없을 수 있음 (암호를 처음 정하기 전)
+        return k === 'admin' ? ghGetData(k).catch(function (e) { if (e.status === 404) return { json: null }; throw e; }) : ghGetData(k);
+      })).then(function (a) {
         keys.forEach(function (k, i) { data[k] = a[i].json; sha[k] = a[i].sha; });
+        if (data.admin) setDeployedAuth(data.admin, false);
+        data.admin = auth;
       });
     }
-    return loadDormData().then(function (d) { keys.forEach(function (k) { data[k] = d[k]; }); });
+    return Promise.all([loadDormData(), loadDormFile('admin')]).then(function (r) {
+      CONTENT_KEYS.forEach(function (k) { data[k] = r[0][k]; });
+      if (r[1]) setDeployedAuth(r[1], true);
+      data.admin = auth;
+    });
   }
 
   // 로컬 편집 모드: 내려받기 전 수정 내용을 브라우저에 보관 (새로고침해도 유지)
   function saveDraft() {
     if (mode !== 'local') return;
-    try { store(DRAFT_KEY, JSON.stringify({ at: new Date().toLocaleString('ko-KR'), dirty: dirty, data: data })); } catch (e) { /* 용량 초과 */ }
+    var d = {}; CONTENT_KEYS.forEach(function (k) { if (dirty[k]) d[k] = true; });
+    try { store(DRAFT_KEY, JSON.stringify({ at: new Date().toLocaleString('ko-KR'), dirty: d, data: contentOnly() })); } catch (e) { /* 용량 초과 */ }
   }
   function clearDraft() { store(DRAFT_KEY, null); }
+  function contentOnly() { return { site: data.site, posts: data.posts, meals: data.meals }; }
+  function savePreview() { try { store('dorm-preview', JSON.stringify(contentOnly())); } catch (e) { /* 용량 초과 시 미리보기만 생략 */ } }
 
   function normalize() {
     var s = data.site;
@@ -161,7 +199,7 @@
     if (!FILES[file]) return; // 글쓰기 창의 임시 입력값 등은 저장 대상 아님
     dirty[file] = true;
     updateSaveBtn();
-    try { store('dorm-preview', JSON.stringify(data)); } catch (e) { /* 용량 초과 시 미리보기만 생략 */ }
+    savePreview();
     saveDraft();
   }
   function dirtyList() { return Object.keys(dirty).filter(function (k) { return dirty[k]; }); }
@@ -195,6 +233,8 @@
       chain = chain.then(function () {
         return ghPut(repoPath(FILES[k]), utf8ToB64(json[k]), msg, sha[k]).then(function (r) {
           sha[k] = r.content.sha; dirty[k] = false;
+          // 저장소에는 올라갔지만 홈페이지 재배포(1~2분) 전까지는 이 브라우저의 새 암호 기록을 유지 (setDeployedAuth가 정리)
+          if (k === 'admin') authDeployed = true;
         });
       });
     });
@@ -265,6 +305,11 @@
       (base ? '-' + base : '') + '.' + ext;
   }
   function upload(file) {
+    var isImg = UPLOAD_IMG.test(file.name) && /^image\/(jpeg|png|gif|webp)$/.test(file.type);
+    if (!isImg && !UPLOAD_DOC.test(file.name)) {
+      toast('올릴 수 없는 파일 형식입니다. 사진(JPG·PNG·GIF·WEBP)과 문서(PDF·HWP·워드·엑셀·파워포인트·TXT·CSV·ZIP)만 올릴 수 있습니다.', 'err');
+      return Promise.reject(new Error('type'));
+    }
     if (file.size > 20 * 1024 * 1024) { toast('20MB 이하 파일만 올릴 수 있습니다. 문서는 PDF로 변환하거나 나눠서 올려 주세요.', 'err'); return Promise.reject(new Error('size')); }
     toast((mode === 'github' ? '업로드 중… ' : '파일 준비 중… ') + file.name);
     return compressImage(file).then(function (f) {
@@ -287,7 +332,7 @@
         return { url: rel, name: file.name };
       });
     }).catch(function (e) {
-      if (e.message !== 'size') toast('업로드 실패: ' + e.message, 'err');
+      if (e.message !== 'size' && e.message !== 'type') toast('업로드 실패: ' + e.message, 'err');
       throw e;
     });
   }
@@ -410,7 +455,7 @@
   /* ================= 리치 에디터 ================= */
   function richEditor(html) {
     var area = h('div', { class: 'rte-area', contenteditable: 'true' });
-    area.innerHTML = toPreview(html || '');
+    area.innerHTML = toPreview(dormSanitize(html || '')); // 데이터가 변조돼도 관리자 화면에서 스크립트가 실행되지 않게
     var src = h('textarea', { class: 'rte-src', hidden: true, spellcheck: 'false' });
     var srcMode = false;
     var listeners = [];
@@ -423,7 +468,7 @@
         v = v.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
         toast('본문에 직접 붙은 이미지를 뺐습니다. 이미지는 [이미지] 버튼으로 넣어 주세요.', 'err');
       }
-      return v;
+      return dormSanitize(v);
     }
     function changed() { listeners.forEach(function (fn) { fn(value()); }); }
     function cmd(c, v) { area.focus(); document.execCommand(c, false, v); changed(); }
@@ -436,7 +481,7 @@
     function b(label, title, fn) { return h('button', { type: 'button', title: title, html: label, onmousedown: function (e) { e.preventDefault(); }, onclick: fn }); }
     var srcBtn = b('&lt;/&gt; HTML', 'HTML 직접 편집', function () {
       srcMode = !srcMode;
-      if (srcMode) { src.value = fromPreview(area.innerHTML); } else { area.innerHTML = toPreview(src.value); }
+      if (srcMode) { src.value = fromPreview(area.innerHTML); } else { area.innerHTML = toPreview(dormSanitize(fromPreview(src.value))); }
       area.hidden = srcMode; src.hidden = !srcMode;
       srcBtn.classList.toggle('on', srcMode);
     });
@@ -478,8 +523,10 @@
       }),
       b('지도/영상', 'iframe 코드 붙여넣기 (네이버·카카오 지도, 유튜브)', function () {
         var code = prompt('지도 또는 유튜브의 "퍼가기/HTML 태그" 코드를 붙여넣으세요');
-        if (code && /^\s*<iframe[\s\S]*<\/iframe>\s*$/i.test(code)) insertHtml(code + '<p><br></p>');
-        else if (code) alert('<iframe …></iframe> 형식의 코드만 넣을 수 있습니다.');
+        if (!code) return;
+        var cleanCode = /^\s*<iframe[\s\S]*<\/iframe>\s*$/i.test(code) ? dormSanitize(code) : '';
+        if (cleanCode.indexOf('<iframe') >= 0) insertHtml(cleanCode + '<p><br></p>');
+        else alert('넣을 수 없는 코드입니다. 유튜브, 구글·네이버·카카오 지도의 <iframe …></iframe> 퍼가기 코드만 넣을 수 있습니다.');
       }),
       h('span', { class: 'sep' }),
       b('서식 지우기', '선택 영역 서식 제거 (한글·워드에서 붙여넣은 뒤 사용)', function () { cmd('removeFormat'); }),
@@ -487,7 +534,7 @@
 
     // 붙여넣기·끌어놓기 이미지는 본문에 직접 박히면(data: 주소) posts.js가 수 MB로 커지므로 업로드 경로로 처리
     function takeImages(files, e) {
-      var imgs = Array.prototype.filter.call(files || [], function (f) { return /^image\//.test(f.type); });
+      var imgs = Array.prototype.filter.call(files || [], function (f) { return /^image\/(jpeg|png|gif|webp)$/.test(f.type); });
       if (!imgs.length) return;
       e.preventDefault();
       imgs.reduce(function (p, f) {
@@ -563,6 +610,8 @@
     var boardName = {}; data.posts.boards.forEach(function (b) { boardName[b.id] = b.name; });
 
     var wrap = h('div');
+    if (auth && !authDeployed) wrap.appendChild(h('div', { class: 'warn', html: '<b>관리자 암호가 아직 홈페이지에 등록되지 않았습니다.</b> 지금은 이 브라우저에서만 잠깁니다. ' +
+      (mode === 'github' ? '[저장 · 배포]를 누르면 등록됩니다.' : '[파일 내려받기]로 받은 <code>admin.js</code>를 저장소 <code>data</code> 폴더에 올리세요. 올리기 전까지 홈페이지의 관리자 화면은 누구나 새 암호를 정해 열 수 있습니다.') }));
     if (mode === 'local') wrap.appendChild(h('div', { class: 'warn', html: '<b>로컬 편집 모드</b> — 로그인 없이 편집할 수 있고, 수정 내용은 이 브라우저에 자동 보관됩니다. 홈페이지에 반영하려면 <b>파일 내려받기</b>로 받은 <code>site.js · posts.js · meals.js</code>를 사이트의 <code>data</code> 폴더에 덮어쓰세요. (선택) <b>연결 · 백업</b>에서 GitHub를 연결하면 버튼 한 번으로 배포됩니다.' }));
     wrap.appendChild(h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('span', { text: '전체 게시물' }), h('b', { text: data.posts.posts.length })),
@@ -999,23 +1048,32 @@
 
   RENDER.system = function () {
     var wrap = h('div');
-    var saved = {};
-    try { saved = JSON.parse(store(CFG_KEY) || '{}'); } catch (e) { saved = {}; }
+    var saved = loadCfg();
+
+    wrap.appendChild(securityCard());
 
     if (mode === 'github') {
+      var expiry = '';
+      if (tokenExpiry) {
+        var days = Math.floor((new Date(tokenExpiry.replace(' UTC', 'Z').replace(' ', 'T')) - new Date()) / 864e5);
+        expiry = '<br>토큰 만료: <b>' + esc(tokenExpiry) + '</b> ' + (isNaN(days) ? '' : days < 14 ? '<span class="pill warn">' + days + '일 남음 · 새 토큰을 준비하세요</span>' : '<span class="pill ok">' + days + '일 남음</span>');
+      }
       wrap.appendChild(card('GitHub 연결됨',
-        '<b>' + cfg.owner + '/' + cfg.repo + '</b> 저장소 <b>' + cfg.branch + '</b> 브랜치의 <code>' + repoPath('data/') + '</code>에 바로 저장·배포합니다.',
-        h('button', { type: 'button', class: 'btn', text: '연결 해제 (로컬 편집 모드로)', onclick: disconnect })));
+        '<b>' + esc(cfg.owner) + '/' + esc(cfg.repo) + '</b> 저장소 <b>' + esc(cfg.branch) + '</b> 브랜치의 <code>' + esc(repoPath('data/')) + '</code>에 바로 저장·배포합니다.' +
+        (cfg.remember ? '<br>토큰은 관리자 암호로 <b>암호화되어</b> 이 브라우저에 기억됩니다.' : '<br>토큰은 이 탭을 닫으면 지워집니다.') + expiry,
+        h('button', { type: 'button', class: 'btn', text: '연결 해제 (토큰 지우기)', onclick: disconnect })));
     } else {
       var d = Object.assign(detect(), saved);
-      var f = { owner: d.owner, repo: d.repo, branch: d.branch || 'main', base: d.base || '', token: '', remember: !!saved.remember };
+      var f = { owner: d.owner, repo: d.repo, branch: d.branch || 'main', base: d.base || '', token: '', remember: false };
       var err = h('p', { class: 'err', role: 'alert' });
       var btn = h('button', { type: 'button', class: 'btn primary', text: '연결하기' });
       btn.addEventListener('click', function () {
-        if (!f.token.trim()) { err.textContent = '토큰을 입력하세요.'; return; }
+        var t = f.token.trim();
+        if (!t) { err.textContent = '토큰을 입력하세요.'; return; }
+        if (/^(ghp|gho|ghu|ghs)_/.test(t) && !confirm('클래식 토큰(ghp_…)은 이 계정의 모든 저장소에 접근할 수 있어 유출 시 피해가 큽니다.\n이 저장소만 선택한 Fine-grained 토큰(github_pat_…)을 권장합니다.\n그래도 연결할까요?')) return;
         if (dirtyList().length && !confirm('연결하면 저장소의 최신 내용을 다시 불러옵니다. 내려받지 않은 수정 내용은 사라집니다. 계속할까요?')) return;
         btn.disabled = true; btn.textContent = '연결 중…';
-        connect({ owner: f.owner.trim(), repo: f.repo.trim(), branch: f.branch.trim() || 'main', base: f.base.trim(), token: f.token.trim(), remember: f.remember })
+        connect({ owner: f.owner.trim(), repo: f.repo.trim(), branch: f.branch.trim() || 'main', base: f.base.trim(), token: t, remember: f.remember })
           .catch(function (e) { err.textContent = e.message; btn.disabled = false; btn.textContent = '연결하기'; });
       });
       wrap.appendChild(card('GitHub 자동 배포 연결 (선택)',
@@ -1027,10 +1085,10 @@
           { key: 'branch', label: '브랜치' },
           { key: 'base', label: '사이트 폴더 경로 (저장소 최상위면 비움)' },
           { key: 'token', label: 'Personal Access Token (github_pat_…)', type: 'password', wide: true },
-          { key: 'remember', label: '이 브라우저에 토큰 기억하기 (개인 PC에서만)', type: 'checkbox' }
+          { key: 'remember', label: '이 브라우저에 토큰 기억하기 (관리자 암호로 암호화, 개인 PC에서만)', type: 'checkbox' }
         ], 'none'), err, btn,
-        h('details', { class: 'help' }, h('summary', { text: '토큰 발급 방법' }),
-          h('div', { html: '<ol><li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → Settings → Developer settings → Fine-grained tokens</a>에서 <b>Generate new token</b></li><li>Repository access: <b>Only select repositories</b> → 이 사이트 저장소만 선택</li><li>Permissions → Repository permissions → <b>Contents: Read and write</b></li><li>생성된 토큰을 위에 붙여넣기 (토큰은 GitHub 외 어디에도 전송되지 않습니다)</li></ol>' }))));
+        h('details', { class: 'help' }, h('summary', { text: '토큰 발급 방법 (안전하게)' }),
+          h('div', { html: '<ol><li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">GitHub → Settings → Developer settings → Fine-grained tokens</a>에서 <b>Generate new token</b></li><li>Expiration: <b>90일</b> 이내로 정하기</li><li>Repository access: <b>Only select repositories</b> → 이 사이트 저장소만 선택</li><li>Permissions → Repository permissions → <b>Contents: Read and write</b> 하나만 (다른 권한은 주지 않기)</li><li>생성된 토큰을 위에 붙여넣기. 토큰은 GitHub 외 어디에도 전송되지 않습니다.</li></ol>' }))));
     }
 
     var imp = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
@@ -1040,13 +1098,14 @@
         var j = JSON.parse(t);
         if (!j.site || !j.posts || !j.meals) throw new Error('백업 파일 형식이 아닙니다.');
         if (!confirm('백업 파일 내용으로 전체를 교체할까요?')) return;
-        data = { site: j.site, posts: j.posts, meals: j.meals }; normalize();
-        Object.keys(FILES).forEach(markDirty); go('dashboard'); toast('백업을 불러왔습니다.', 'ok');
+        // 백업에서는 내용만 가져오고 관리자 암호는 건드리지 않음
+        data = { site: j.site, posts: j.posts, meals: j.meals, admin: auth }; normalize();
+        CONTENT_KEYS.forEach(markDirty); go('dashboard'); toast('백업을 불러왔습니다.', 'ok');
       }).catch(function (e) { toast('불러오기 실패: ' + e.message, 'err'); });
     });
-    wrap.appendChild(card('백업', '전체 내용을 파일 하나로 내려받거나, 백업 파일로 되돌립니다.',
+    wrap.appendChild(card('백업', '전체 내용을 파일 하나로 내려받거나, 백업 파일로 되돌립니다. 관리자 암호는 백업에 들어가지 않습니다.',
       h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'btn', text: '전체 백업 내려받기', onclick: function () { download('dorm-backup-' + ymd(new Date()) + '.json', JSON.stringify(data, null, 1)); } }),
+        h('button', { type: 'button', class: 'btn', text: '전체 백업 내려받기', onclick: function () { download('dorm-backup-' + ymd(new Date()) + '.json', JSON.stringify(contentOnly(), null, 1)); } }),
         h('button', { type: 'button', class: 'btn', text: '백업 파일 불러오기', onclick: function () { imp.click(); } }), imp)));
     if (mode === 'local') {
       wrap.appendChild(card('편집 내용 초기화', '이 브라우저에 보관된 수정 내용을 버리고, 사이트의 data 파일 내용으로 되돌립니다.',
@@ -1057,6 +1116,176 @@
     }
     return wrap;
   };
+
+  /* ---- 보안 카드: 관리자 암호 변경 · 점검 목록 ---- */
+  function securityCard() {
+    var f = { cur: '', pw1: '', pw2: '' };
+    var err = h('p', { class: 'err', role: 'alert' });
+    var btn = h('button', { type: 'button', class: 'btn primary', text: '암호 변경' });
+    btn.addEventListener('click', function () {
+      err.textContent = '';
+      var msg = pwProblem(f.pw1, f.pw2);
+      if (msg) { err.textContent = msg; return; }
+      btn.disabled = true; btn.textContent = '확인 중…';
+      verifyPw(f.cur).then(function (ok) {
+        if (!ok) throw new Error('현재 암호가 맞지 않습니다.');
+        return setPassword(f.pw1);
+      }).then(function () {
+        go('system');
+        toast(mode === 'github' ? '암호를 바꿨습니다. [저장 · 배포]를 눌러야 적용됩니다.' : '암호를 바꿨습니다. [파일 내려받기]로 받은 admin.js를 data 폴더에 올려야 적용됩니다.', 'ok');
+      }).catch(function (e) { err.textContent = e.message; btn.disabled = false; btn.textContent = '암호 변경'; });
+    });
+    var state = authDeployed && !dirty.admin
+      ? '<span class="pill ok">홈페이지에 등록됨</span>'
+      : '<span class="pill warn">아직 홈페이지에 올리지 않음</span> ' + (mode === 'github' ? '[저장 · 배포]를 누르세요.' : '[파일 내려받기]로 받은 <code>admin.js</code>를 저장소 <code>data</code> 폴더에 올리세요.');
+    return card('보안 · 관리자 암호', '관리자 암호 상태: ' + state,
+      fields(f, [
+        { key: 'cur', label: '현재 암호', type: 'password' },
+        { key: 'pw1', label: '새 암호 (' + MIN_PW + '자 이상)', type: 'password' },
+        { key: 'pw2', label: '새 암호 확인', type: 'password' }
+      ], 'none', 'c3'), err, btn,
+      h('details', { class: 'help' }, h('summary', { text: '보안 점검 목록' }),
+        h('ul', { class: 'sec-list', html:
+          '<li>GitHub 계정에 <b>2단계 인증(2FA)</b>을 켜 두세요. 홈페이지를 바꾸는 진짜 열쇠는 GitHub 계정입니다.</li>' +
+          '<li>저장소 Settings → Collaborators에 <b>필요한 사람만</b> 두세요.</li>' +
+          '<li>토큰은 이 저장소만, Contents 권한만, 90일 이내 만료로 만드세요.</li>' +
+          '<li>공용 PC에서는 "토큰 기억하기"를 끄고, 다 쓰면 [잠금] 또는 [연결 해제]를 누르세요.</li>' +
+          '<li>관리자 암호는 <b>다른 곳에서 쓰지 않는 암호</b>로 정하세요. 암호 기록(해시)은 공개 저장소에 올라갑니다.</li>' +
+          '<li>저장소 Commits 기록을 가끔 확인해 모르는 수정이 없는지 보세요.</li>' +
+          '<li>저장소 Settings → Pages에서 <b>Enforce HTTPS</b>가 켜져 있는지 확인하세요.</li>' })));
+  }
+
+  /* ================= 보안: 관리자 암호 · 토큰 암호화 · 자동 잠금 ================= */
+  var te = new TextEncoder();
+  function b64(buf) { var b = new Uint8Array(buf), s = ''; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+  function unb64(str) { var bin = atob(str), b = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return b; }
+  function randomBytes(n) { return crypto.getRandomValues(new Uint8Array(n)); }
+  function pwKey(pw) { return crypto.subtle.importKey('raw', te.encode(pw), 'PBKDF2', false, ['deriveBits', 'deriveKey']); }
+  function pwHash(pw, salt, iter) {
+    return pwKey(pw).then(function (k) {
+      return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt, iterations: iter, hash: 'SHA-256' }, k, 256);
+    }).then(b64);
+  }
+  function aesKey(pw, salt) {
+    return pwKey(pw).then(function (k) {
+      return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt, iterations: PBKDF2_ITER, hash: 'SHA-256' }, k, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    });
+  }
+  function encryptText(pw, text) {
+    var salt = randomBytes(16), iv = randomBytes(12);
+    return aesKey(pw, salt).then(function (k) { return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, k, te.encode(text)); })
+      .then(function (ct) { return { salt: b64(salt), iv: b64(iv), ct: b64(ct) }; });
+  }
+  function decryptText(pw, box) {
+    return aesKey(pw, unb64(box.salt)).then(function (k) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, k, unb64(box.ct)); })
+      .then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+  // 길이 비교 시간이 새지 않도록 끝까지 비교
+  function sameText(a, b) { if (a.length !== b.length) return false; var r = 0; for (var i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; }
+
+  function pwProblem(pw1, pw2) {
+    if ((pw1 || '').length < MIN_PW) return '암호는 ' + MIN_PW + '자 이상으로 정하세요.';
+    if (/^(.)\1+$/.test(pw1) || /^(0123456789|1234567890|qwertyuiop|password)/i.test(pw1)) return '추측하기 쉬운 암호입니다. 다른 암호를 정하세요.';
+    if (!/[A-Za-z가-힣]/.test(pw1) || !/[0-9]/.test(pw1)) return '글자와 숫자를 섞어 주세요.';
+    if (pw1 !== pw2) return '암호 확인이 일치하지 않습니다.';
+    return '';
+  }
+  function verifyPw(pw) {
+    if (!auth || !pw) return Promise.resolve(false);
+    return pwHash(pw, unb64(auth.salt), auth.iter || PBKDF2_ITER).then(function (hh) { return sameText(hh, auth.hash); });
+  }
+  function setPassword(pw) {
+    var salt = randomBytes(16);
+    return pwHash(pw, salt, PBKDF2_ITER).then(function (hh) {
+      auth = { v: 1, alg: 'PBKDF2-SHA256', iter: PBKDF2_ITER, salt: b64(salt), hash: hh, updated: new Date().toISOString() };
+      authDeployed = false;
+      store(AUTH_PENDING_KEY, JSON.stringify(auth));
+      unlockedPw = pw;
+      if (data.site) { data.admin = auth; markDirty('admin'); }
+      // 기억된 토큰은 새 암호로 다시 암호화
+      if (mode === 'github' && cfg.remember && cfg.token) return rememberToken();
+    });
+  }
+  // 홈페이지에 올라간 암호와 이 브라우저에만 있는 새 암호 중 최신 것을 사용
+  // fromSite: 홈페이지 파일에서 읽었는지(true) / GitHub API에서 읽었는지(false).
+  // API에 올라가도 홈페이지 재배포·캐시 갱신까지 몇 분 걸리므로, 이 브라우저의 새 암호 기록은 홈페이지 파일이 같아질 때만 지움
+  function setDeployedAuth(rec, fromSite) {
+    if (!rec || !rec.hash || !rec.salt) return;
+    var pending = null;
+    try { pending = JSON.parse(store(AUTH_PENDING_KEY) || 'null'); } catch (e) { pending = null; }
+    if (pending && pending.updated > rec.updated) { auth = pending; authDeployed = false; return; }
+    if (pending && pending.hash === rec.hash) {
+      if (fromSite) store(AUTH_PENDING_KEY, null);
+      auth = pending; authDeployed = true; return;
+    }
+    auth = rec; authDeployed = true;
+  }
+  function loadPendingAuth() {
+    var pending = null;
+    try { pending = JSON.parse(store(AUTH_PENDING_KEY) || 'null'); } catch (e) { pending = null; }
+    if (pending && pending.hash && (!auth || pending.updated > auth.updated)) { auth = pending; authDeployed = false; }
+  }
+
+  function loadCfg() { try { return JSON.parse(store(CFG_KEY) || '{}'); } catch (e) { return {}; } }
+  function rememberToken() {
+    var saved = { owner: cfg.owner, repo: cfg.repo, branch: cfg.branch, base: cfg.base, remember: !!cfg.remember };
+    if (!cfg.remember || !unlockedPw) { store(CFG_KEY, JSON.stringify(saved)); return Promise.resolve(); }
+    return encryptText(unlockedPw, cfg.token).then(function (box) { saved.tokenEnc = box; store(CFG_KEY, JSON.stringify(saved)); });
+  }
+
+  // 잠금 화면
+  var fails = 0, waitUntil = 0;
+  function showLock(kind, onDone) {
+    var setup = kind === 'setup';
+    $('#lock').hidden = false;
+    $('#app').setAttribute('aria-hidden', 'true');
+    $('#lockTitle').textContent = setup ? '관리자 암호 정하기' : '관리자 암호 입력';
+    $('#lockDesc').innerHTML = setup
+      ? '관리 화면을 잠글 암호를 정하세요. <b>' + MIN_PW + '자 이상, 글자와 숫자를 섞어서</b> 다른 곳에서 쓰지 않는 암호로 정합니다.<br>정한 뒤 <b>[파일 내려받기]</b>로 받은 <code>admin.js</code>를 저장소 <code>data</code> 폴더에 올려야 홈페이지의 관리자 화면에도 잠금이 걸립니다.'
+      : (kind === 'idle' ? '30분 동안 사용하지 않아 잠겼습니다. 작업 내용은 그대로 있습니다.' : '관리자 화면을 열려면 암호를 입력하세요.');
+    $('#lockPw2Row').hidden = !setup;
+    $('#lockPw1').autocomplete = setup ? 'new-password' : 'current-password';
+    $('#lockBtn').textContent = setup ? '암호 정하고 시작' : '열기';
+    $('#lockErr').textContent = '';
+    $('#lockPw1').value = ''; $('#lockPw2').value = '';
+    setTimeout(function () { $('#lockPw1').focus(); }, 50);
+    $('#lockForm').onsubmit = function (e) {
+      e.preventDefault();
+      var pw1 = $('#lockPw1').value, pw2 = $('#lockPw2').value, btn = $('#lockBtn');
+      if (Date.now() < waitUntil) { $('#lockErr').textContent = Math.ceil((waitUntil - Date.now()) / 1000) + '초 뒤에 다시 시도하세요.'; return; }
+      if (setup) { var msg = pwProblem(pw1, pw2); if (msg) { $('#lockErr').textContent = msg; return; } }
+      btn.disabled = true;
+      (setup ? setPassword(pw1).then(function () { return true; }) : verifyPw(pw1)).then(function (ok) {
+        btn.disabled = false;
+        if (!ok) {
+          fails++;
+          if (fails >= 5) { waitUntil = Date.now() + 30000 * Math.pow(2, Math.min(fails - 5, 4)); }
+          $('#lockErr').textContent = '암호가 맞지 않습니다.' + (fails >= 5 ? ' 잠시 뒤 다시 시도하세요.' : '');
+          $('#lockPw1').value = ''; $('#lockPw1').focus();
+          return;
+        }
+        fails = 0; unlockedPw = pw1;
+        $('#lockPw1').value = ''; $('#lockPw2').value = '';
+        $('#lock').hidden = true;
+        $('#app').removeAttribute('aria-hidden');
+        lastActive = Date.now();
+        if (onDone) onDone();
+      }).catch(function (e2) { btn.disabled = false; $('#lockErr').textContent = '오류: ' + e2.message; });
+    };
+  }
+  function lockNow(kind) {
+    if (!auth) return;
+    closeModal();
+    showLock(kind || 'unlock');
+  }
+  // 자동 잠금: 30분 동안 입력이 없으면 잠금 (편집 중인 내용은 메모리에 유지)
+  var lastActive = Date.now();
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
+    document.addEventListener(ev, function () { lastActive = Date.now(); }, { passive: true, capture: true });
+  });
+  setInterval(function () {
+    if ($('#lock').hidden && auth && Date.now() - lastActive > IDLE_LOCK_MS) lockNow('idle');
+  }, 30000);
 
   /* ================= 시작 · 연결 ================= */
   function detect() {
@@ -1080,15 +1309,18 @@
         try { draft = JSON.parse(store(DRAFT_KEY) || 'null'); } catch (e) { draft = null; }
         if (draft && draft.data && draft.data.site) {
           if (confirm('내려받지 않은 수정 내용이 있습니다 (' + draft.at + ').\n이어서 편집할까요?\n\n[취소]를 누르면 수정 내용을 버리고 사이트 파일 내용으로 시작합니다.')) {
-            data = draft.data; dirty = draft.dirty || {};
+            CONTENT_KEYS.forEach(function (k) { if (draft.data[k]) data[k] = draft.data[k]; });
+            dirty = draft.dirty || {};
           } else clearDraft();
         }
       }
+      // 새로 정한 암호가 아직 홈페이지에 없으면 함께 내려받도록 표시
+      if (auth && !authDeployed) { data.admin = auth; dirty.admin = true; }
       normalize();
       $('#sideTitle').textContent = (data.site.settings.univName || '') + ' ' + (data.site.settings.siteName || '생활관');
       $('#app').hidden = false;
       updateSaveBtn();
-      try { store('dorm-preview', JSON.stringify(data)); } catch (e) { /* ignore */ }
+      savePreview();
       go(view === 'system' && mode === 'github' ? 'system' : 'dashboard');
     });
   }
@@ -1096,21 +1328,20 @@
     var prev = { cfg: cfg, mode: mode };
     cfg = c; mode = 'github';
     return start().then(function () {
-      var saved = { owner: cfg.owner, repo: cfg.repo, branch: cfg.branch, base: cfg.base, remember: cfg.remember };
-      if (cfg.remember) saved.token = cfg.token;
-      store(CFG_KEY, JSON.stringify(saved));
       sstore('dorm-admin-token', cfg.token);
       clearDraft();
-      toast('GitHub에 연결했습니다.', 'ok');
+      return rememberToken();
+    }).then(function () {
+      toast('GitHub에 연결했습니다.' + (cfg.remember ? ' 토큰은 관리자 암호로 암호화해 기억합니다.' : ''), 'ok');
     }).catch(function (e) { cfg = prev.cfg; mode = prev.mode; $('#modeChip').textContent = '로컬 편집 모드'; $('#modeChip').className = 'mode local'; throw e; });
   }
   function disconnect() {
     if (dirtyList().length && !confirm('저장하지 않은 변경사항이 있습니다. 연결을 해제할까요?')) return;
-    var saved = {};
-    try { saved = JSON.parse(store(CFG_KEY) || '{}'); } catch (e) { saved = {}; }
-    delete saved.token; saved.remember = false;
+    var saved = loadCfg();
+    delete saved.token; delete saved.tokenEnc; saved.remember = false;
     store(CFG_KEY, JSON.stringify(saved));
     sstore('dorm-admin-token', null);
+    tokenExpiry = '';
     mode = 'local'; cfg = Object.assign(detect(), { token: '' });
     start(true).catch(function (e) { toast(e.message, 'err'); });
   }
@@ -1126,25 +1357,51 @@
   /* ================= 상단 버튼 등 ================= */
   $('#saveBtn').addEventListener('click', saveAll);
   $('#previewBtn').addEventListener('click', function () {
-    try { store('dorm-preview', JSON.stringify(data)); } catch (e) { /* ignore */ }
+    savePreview();
     window.open('index.html?preview=1#/', 'dorm-preview');
   });
   $('#menuBtn').addEventListener('click', function () { document.body.classList.toggle('nav-open'); });
   $('#modalClose').addEventListener('click', function () { if (confirm('편집 중인 내용을 닫을까요?')) closeModal(); });
+  $('#lockNow').addEventListener('click', function () { lockNow('unlock'); });
   window.addEventListener('beforeunload', function (e) {
     // 로컬 편집 모드는 브라우저에 자동 보관되므로 경고하지 않음
     if (mode === 'github' && dirtyList().length) { e.preventDefault(); e.returnValue = ''; }
   });
 
   /* ================= 시작 ================= */
+  // 1) 관리자 암호 확인(또는 처음 정하기) → 2) 기억된 토큰 복호화 → 3) 편집 화면
+  function afterUnlock() {
+    var saved = loadCfg();
+    // 예전 버전이 평문으로 저장한 토큰은 즉시 지우고, 기억하기였다면 암호화해서 다시 저장
+    var legacy = saved.token;
+    if (legacy) { delete saved.token; store(CFG_KEY, JSON.stringify(saved)); }
+    var getToken = saved.tokenEnc
+      ? decryptText(unlockedPw, saved.tokenEnc).catch(function () { return null; })
+      : Promise.resolve(legacy || sstore('dorm-admin-token'));
+    getToken.then(function (token) {
+      if (saved.owner && token) {
+        cfg = Object.assign({}, saved, { token: token });
+        delete cfg.tokenEnc;
+        mode = 'github';
+        start().then(function () {
+          sstore('dorm-admin-token', token);
+          if (legacy && cfg.remember) return rememberToken();
+        }).catch(function (err) { startLocal('GitHub 자동 연결 실패(' + err.message + ') — 로컬 편집 모드로 열었습니다.'); });
+      } else startLocal(saved.tokenEnc && !token ? '기억된 토큰을 풀 수 없어 로컬 편집 모드로 열었습니다. 연결 · 백업에서 다시 연결하세요.' : '');
+    });
+  }
   (function boot() {
-    var saved = {};
-    try { saved = JSON.parse(store(CFG_KEY) || '{}'); } catch (e) { saved = {}; }
-    var token = saved.token || sstore('dorm-admin-token');
-    if (saved.owner && token) {
-      cfg = Object.assign({}, saved, { token: token });
-      mode = 'github';
-      start().catch(function (err) { startLocal('GitHub 자동 연결 실패(' + err.message + ') — 로컬 편집 모드로 열었습니다.'); });
-    } else startLocal();
+    if (!window.crypto || !crypto.subtle) {
+      $('#lock').hidden = false;
+      $('#lockTitle').textContent = '안전한 주소로 열어 주세요';
+      $('#lockDesc').textContent = '이 브라우저 환경에서는 암호 기능을 쓸 수 없습니다. https:// 로 시작하는 주소로 열거나 최신 크롬·엣지를 사용하세요.';
+      $('#lockForm').querySelectorAll('label, button').forEach(function (x) { x.hidden = true; });
+      return;
+    }
+    loadDormFile('admin').then(function (rec) {
+      if (rec) setDeployedAuth(rec, true);
+      loadPendingAuth();
+      showLock(auth ? 'unlock' : 'setup', afterUnlock);
+    });
   })();
 })();

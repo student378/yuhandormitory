@@ -194,3 +194,23 @@ table.grid tr:hover td { background: #fafbfd; }
   table.grid.resp td.act { text-align: left; width: auto; }
   .ellipsis { max-width: none; white-space: normal; }
 }
+
+/* 잠금 화면 */
+.lock { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 30px 16px; background: linear-gradient(135deg, #0d1b33, #0b4ea2); overflow-y: auto; }
+.lock-card { width: 100%; max-width: 440px; background: #fff; border-radius: 16px; padding: 32px; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+.lock-card h1 { font-size: 21px; display: flex; align-items: center; gap: 10px; }
+.lk-mark { font-size: 22px; }
+.lock-card .desc { color: var(--ink-2); margin: 10px 0 18px; }
+.lock-card label { display: block; font-weight: 500; margin-bottom: 12px; }
+.lock-card label input { margin-top: 4px; }
+.lock-card .help { margin-top: 16px; }
+.lock-card .help ul { padding-left: 18px; margin: 8px 0 0; }
+.lock-now { border: 0; background: none; color: rgba(255,255,255,.55); cursor: pointer; padding: 0; font-size: 13px; }
+.lock-now:hover { color: #fff; }
+.side-ft { flex-wrap: wrap; gap: 6px 12px; }
+.sec-list { margin: 8px 0 0; padding-left: 18px; }
+.sec-list li { margin-bottom: 4px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 20px; }
+.pill.ok { background: #e6f7ef; color: #1a7f4b; }
+.pill.warn { background: #fff4d6; color: #8a5a00; }
+.pill.no { background: #fde8e8; color: #b91c1c; }
